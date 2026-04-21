@@ -5,7 +5,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { AdbClient } = require('@devicefarmer/adbkit');
+const adb = require('@devicefarmer/adbkit'); // FIXED IMPORT
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
@@ -28,8 +28,8 @@ app.use(express.static('public'));
 // AI Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ADB Client Setup (Correct for v3.x)
-const adbClient = new AdbClient();
+// ADB Client Setup (FIXED INITIALIZATION)
+const adbClient = adb.createClient();
 
 // Data Storage (In-Memory)
 const connectedDevices = new Map(); // deviceId -> { socket, deviceInfo, adbId }
@@ -232,8 +232,9 @@ io.on('connection', (socket) => {
 });
 
 // ==================== SERVER START ====================
+// Binding to 0.0.0.0 is best practice for Render to ensure it maps ports correctly
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔════════════════════════════════════════════════════════╗
 ║     Advanced Remote Android Server Started 🚀         ║
