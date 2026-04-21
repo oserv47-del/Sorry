@@ -8,7 +8,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require('node-telegram-bot-api'); // Add this dependency if not in package.json
 
 // --- File System Setup ---
 const FILES_DIR = path.join(__dirname, 'file_manager_data');
@@ -421,7 +421,7 @@ app.post('/api/telegram/connect', authMiddleware, async (req, res) => {
         telegramChatId = chatId;
         
         // Send test message
-        await telegramBot.sendMessage(chatId, '🤖 *Remote Android Server Connected*\\n\\n✅ Bot is now online and ready to receive commands!', { parse_mode: 'Markdown' });
+        await telegramBot.sendMessage(chatId, '🤖 *Remote Android Server Connected*\n\n✅ Bot is now online and ready to receive commands!', { parse_mode: 'Markdown' });
         
         // Listen for incoming messages
         telegramBot.on('message', async (msg) => {
@@ -448,9 +448,9 @@ app.post('/api/telegram/connect', authMiddleware, async (req, res) => {
                 const device = connectedDevices.get(deviceId);
                 device.socket.emit('execute_command', { requestId, command });
                 const result = await commandPromise;
-                telegramBot.sendMessage(telegramChatId, \`✅ *Result:*\\n\\n\\\`\\\`\\\`\\n\${String(result).substring(0, 3000)}\\n\\\`\\\`\\\`\`, { parse_mode: 'Markdown' });
+                telegramBot.sendMessage(telegramChatId, `✅ *Result:*\n\n\`\`\`\n${String(result).substring(0, 3000)}\n\`\`\``, { parse_mode: 'Markdown' });
             } catch (error) {
-                telegramBot.sendMessage(telegramChatId, \`❌ *Error:* \${error.message}\`, { parse_mode: 'Markdown' });
+                telegramBot.sendMessage(telegramChatId, `❌ *Error:* ${error.message}`, { parse_mode: 'Markdown' });
             }
         });
         
@@ -477,8 +477,8 @@ app.post('/api/ai/assist', authMiddleware, async (req, res) => {
             genAI = new GoogleGenerativeAI(apiKey);
         }
         
-        // Use FREE model: gemini-2.5-flash
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        // Use FREE model: gemini-2.0-flash-exp
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
         
         let context = "You are an assistant for remote Android device management. Provide concise, actionable help. ";
         if (deviceId) {
@@ -551,7 +551,7 @@ app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
             
             // Notify Telegram if connected
             if (telegramBot && telegramChatId) {
-                telegramBot.sendMessage(telegramChatId, \`✅ *File Saved:* \\\`\${safeName}\\\`\`, { parse_mode: 'Markdown' });
+                telegramBot.sendMessage(telegramChatId, `✅ *File Saved:* \`${safeName}\``, { parse_mode: 'Markdown' });
             }
             
             return res.json({ success: true, requestId, result: result, savedToFile: true, file: safeName });
@@ -596,11 +596,11 @@ io.on('connection', (socket) => {
         connectedDevices.set(deviceId, { socket, deviceInfo });
         socket.join('device:' + deviceId);
         socket.emit('registered', { success: true });
-        console.log(\`📱 Device Registered: \${deviceId} (\${deviceInfo?.model || 'Unknown'})\`);
+        console.log(`📱 Device Registered: ${deviceId} (${deviceInfo?.model || 'Unknown'})`);
         
         // Notify Telegram
         if (telegramBot && telegramChatId) {
-            telegramBot.sendMessage(telegramChatId, \`🟢 *Device Connected*\\n\\nModel: \${deviceInfo?.model || 'Unknown'}\\nID: \\\`\${deviceId}\\\`\`, { parse_mode: 'Markdown' });
+            telegramBot.sendMessage(telegramChatId, `🟢 *Device Connected*\n\nModel: ${deviceInfo?.model || 'Unknown'}\nID: \`${deviceId}\``, { parse_mode: 'Markdown' });
         }
     });
 
@@ -618,9 +618,9 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         if (socket.deviceId) {
             connectedDevices.delete(socket.deviceId);
-            console.log(\`🔌 Device Disconnected: \${socket.deviceId}\`);
+            console.log(`🔌 Device Disconnected: ${socket.deviceId}`);
             if (telegramBot && telegramChatId) {
-                telegramBot.sendMessage(telegramChatId, \`🔴 *Device Disconnected*\\n\\nID: \\\`\${socket.deviceId}\\\`\`, { parse_mode: 'Markdown' });
+                telegramBot.sendMessage(telegramChatId, `🔴 *Device Disconnected*\n\nID: \`${socket.deviceId}\``, { parse_mode: 'Markdown' });
             }
         }
     });
@@ -628,13 +628,13 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(\`
+    console.log(`
 ╔════════════════════════════════════════════════════════╗
-║   🚀 Remote Android Server Live on Port \${PORT}        ║
+║   🚀 Remote Android Server Live on Port ${PORT}        ║
 ╠════════════════════════════════════════════════════════╣
-║   AI Assistant: Free Model (gemini-2.5-flash)         ║
+║   AI Assistant: Free Model (gemini-2.0-flash-exp)     ║
 ║   Telegram Bot: Connect via UI                         ║
 ║   File Storage: ./file_manager_data/                   ║
 ╚════════════════════════════════════════════════════════╝
-    \`);
+    `);
 });
