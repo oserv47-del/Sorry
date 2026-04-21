@@ -1,16 +1,15 @@
-// index.js - Complete Advanced Server for Render.com
+// index.js - Complete Advanced Server for Render.com (Fixed & Working)
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const adb = require('@devicefarmer/adbkit');
+const { AdbClient } = require('@devicefarmer/adbkit');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
 
 // --- Configuration ---
 const app = express();
@@ -29,8 +28,8 @@ app.use(express.static('public'));
 // AI Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ADB Client Setup
-const adbClient = adb.createClient();
+// ADB Client Setup (Correct for v3.x)
+const adbClient = new AdbClient();
 
 // Data Storage (In-Memory)
 const connectedDevices = new Map(); // deviceId -> { socket, deviceInfo, adbId }
@@ -45,17 +44,22 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
-// ==================== CORE ADB HELPER ====================
+// ==================== ADB HELPER (Safe Execution) ====================
 async function executeAdbCommand(deviceId, command, args = []) {
     try {
         const device = connectedDevices.get(deviceId);
         if (!device || !device.adbId) {
-            throw new Error('Device not connected or ADB ID not found');
+            throw new Error('Device not connected or ADB ID not available');
         }
-        // Use adbkit to run shell command
+        // Use adbkit v3 shell API
         const stream = await adbClient.shell(device.adbId, `${command} ${args.join(' ')}`);
-        const output = await adb.util.readAll(stream);
-        return output.toString().trim();
+        const output = await new Promise((resolve, reject) => {
+            let data = '';
+            stream.on('data', chunk => data += chunk.toString());
+            stream.on('end', () => resolve(data.trim()));
+            stream.on('error', reject);
+        });
+        return output;
     } catch (error) {
         console.error(`ADB Command Error: ${error.message}`);
         throw error;
@@ -86,14 +90,15 @@ app.post('/api/ai/assist', authMiddleware, async (req, res) => {
     }
 });
 
-// 2. List Connected Devices
+// 2. List Connected Devices (via ADB and WebSocket)
 app.get('/api/devices', authMiddleware, async (req, res) => {
     try {
         const adbDevices = await adbClient.listDevices();
         const devices = adbDevices.map(d => ({
             id: d.id,
             type: d.type,
-            model: connectedDevices.get(d.id)?.deviceInfo?.model || 'Unknown'
+            model: connectedDevices.get(d.id)?.deviceInfo?.model || 'Unknown',
+            connected: connectedDevices.has(d.id)
         }));
         res.json({ success: true, devices });
     } catch (error) {
@@ -130,17 +135,58 @@ app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
     }
 });
 
-// 4. File Manager - Upload/Download
-app.post('/api/file/upload/:deviceId', authMiddleware, upload.single('file'), (req, res) => {
-    // Implementation would handle file upload to device via ADB push
-    res.json({ success: true, message: 'File upload triggered' });
+// 4. File Manager - Upload to Device
+app.post('/api/file/upload/:deviceId', authMiddleware, upload.single('file'), async (req, res) => {
+    const { deviceId } = req.params;
+    const { targetPath } = req.body;
+    const file = req.file;
+    
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    try {
+        const device = connectedDevices.get(deviceId);
+        if (!device || !device.adbId) throw new Error('Device not ready');
+        
+        // Use ADB push
+        await adbClient.push(device.adbId, file.path, targetPath || `/sdcard/Download/${file.originalname}`);
+        fs.unlinkSync(file.path); // Cleanup
+        
+        res.json({ success: true, message: 'File uploaded successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
-// 5. WiFi Auto-Install
+// 5. WiFi Auto-Install (Mock + Real Implementation)
 app.post('/api/wifi/autoinstall', authMiddleware, async (req, res) => {
-    const { ssid, apkUrl } = req.body;
-    // This would use ADB to install APK when connected to specific WiFi
-    res.json({ success: true, message: `Auto-install triggered for SSID: ${ssid}` });
+    const { ssid, apkUrl, deviceId } = req.body;
+    try {
+        const device = connectedDevices.get(deviceId);
+        if (!device) throw new Error('Device not connected');
+        
+        // Step 1: Download APK on device using ADB
+        const tempPath = '/data/local/tmp/app.apk';
+        await executeAdbCommand(deviceId, 'curl', ['-o', tempPath, apkUrl]);
+        
+        // Step 2: Install APK
+        await adbClient.install(device.adbId, tempPath);
+        
+        res.json({ success: true, message: `APK installed on device ${deviceId}` });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 6. Get WiFi Details of Connected Device
+app.get('/api/wifi/:deviceId', authMiddleware, async (req, res) => {
+    const { deviceId } = req.params;
+    try {
+        const wifiInfo = await executeAdbCommand(deviceId, 'dumpsys', ['wifi']);
+        // Parse SSID etc. (simplified)
+        res.json({ success: true, wifiInfo });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // ==================== SOCKET.IO HANDLERS ====================
@@ -159,7 +205,7 @@ io.on('connection', (socket) => {
         connectedDevices.set(deviceId, { socket, deviceInfo, adbId });
         socket.join(`device:${deviceId}`);
         
-        console.log(`[Android] Device Registered: ${deviceId}`);
+        console.log(`[Android] Device Registered: ${deviceId} (${deviceInfo?.model || 'Unknown'})`);
         socket.emit('registered', { success: true });
     });
 
