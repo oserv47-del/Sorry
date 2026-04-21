@@ -1,16 +1,19 @@
 {
-  "name": "remote-android-server",
+  "name": "remote-android-server-adv",
   "version": "1.0.0",
-  "description": "Remote Android Management Server",
+  "description": "Advanced Remote Android Management Server with AI",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
+    "@devicefarmer/adbkit": "^2.11.5",
+    "@google/generative-ai": "^0.21.0",
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
-    "@google/generative-ai": "^0.21.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5"
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0"
   }
 }
