@@ -1,4 +1,4 @@
-// index.js - Advanced Terminal Server + Telegram Bot + Gemini AI (FIXED)
+// index.js - Advanced Terminal Server + Telegram Bot + Gemini AI (Neon Hacker Theme)
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -35,16 +35,11 @@ async function sendTelegramLog(message) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     
-    if (!token || !chatId) {
-        console.log("Telegram Token or Chat ID missing. Log skipped.");
-        return;
-    }
+    if (!token || !chatId) return;
 
     try {
-        // Telegram message limit is 4096. Truncate if data is too big.
         let text = message.length > 4000 ? message.substring(0, 3990) + "\n...[TRUNCATED]" : message;
-        
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' })
@@ -63,62 +58,94 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
-// ==================== WEB TERMINAL UI (HOME PAGE) ====================
-// Note: Backslashes here are intentional to escape variables inside the HTML string
+// ==================== WEB TERMINAL UI (NEON HACKER THEME) ====================
+// Standard string concatenation used below to avoid ANY backend parsing errors
 const terminalHTML = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Powered Remote Terminal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Hacker Terminal</title>
     <style>
-        body { background: #0d1117; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; margin: 0; }
-        h2 { color: #58a6ff; margin-top: 0; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
-        .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
-        input, select, button { background: #161b22; color: #c9d1d9; border: 1px solid #30363d; padding: 10px; border-radius: 5px; font-family: inherit; }
-        button { cursor: pointer; background: #238636; color: white; font-weight: bold; }
-        button:hover { background: #2ea043; }
-        #terminal { background: #000; border: 1px solid #30363d; height: 60vh; overflow-y: auto; padding: 15px; border-radius: 5px; white-space: pre-wrap; font-size: 14px; box-shadow: inset 0 0 10px #000; }
-        .input-group { display: flex; gap: 10px; margin-top: 15px; align-items: center; }
-        #cmdInput { flex-grow: 1; padding: 12px; background: #000; color: #00ff00; font-size: 16px; border: 1px solid #30363d; }
-        .prompt { color: #58a6ff; font-weight: bold; font-size: 18px; }
-        .log-error { color: #ff7b72; }
-        .log-success { color: #3fb950; }
-        .log-cmd { color: #d2a8ff; font-weight: bold; }
-        .log-ai { color: #f2cc60; font-style: italic; }
-        .helper-text { color: #8b949e; font-size: 12px; margin-top: 10px; }
+        :root { --neon: #0f0; --bg: #030303; --panel: #0a0a0a; --dark-green: #003300; }
+        * { box-sizing: border-box; }
+        body { background: var(--bg); color: var(--neon); font-family: 'Courier New', Courier, monospace; margin: 0; padding: 10px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        h2 { text-align: center; margin: 5px 0 15px; text-shadow: 0 0 8px var(--neon); font-size: 1.3rem; text-transform: uppercase; letter-spacing: 2px; }
+        .top-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        input, select, button { background: var(--panel); color: var(--neon); border: 1px solid #0a0; padding: 12px; border-radius: 4px; font-family: inherit; outline: none; font-size: 14px; }
+        input:focus, select:focus { border-color: var(--neon); box-shadow: 0 0 8px var(--dark-green); }
+        button { background: var(--dark-green); cursor: pointer; transition: all 0.2s; font-weight: bold; text-transform: uppercase; }
+        button:hover { background: var(--neon); color: #000; box-shadow: 0 0 10px var(--neon); }
+        .flex-1 { flex: 1; min-width: 140px; }
+        
+        #terminal { flex-grow: 1; background: var(--panel); border: 1px solid #050; border-radius: 4px; padding: 15px; overflow-y: auto; font-size: 13px; white-space: pre-wrap; box-shadow: inset 0 0 20px #000; margin-bottom: 10px; line-height: 1.4; }
+        
+        .input-area { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .prompt-wrap { display: flex; flex-grow: 1; align-items: center; background: var(--panel); border: 1px solid #0a0; border-radius: 4px; padding: 0 10px; }
+        .prompt { color: var(--neon); font-weight: bold; white-space: nowrap; }
+        #cmdInput { border: none; background: transparent; flex-grow: 1; box-shadow: none; padding: 12px 10px; }
+        
+        .exec-btn { width: auto; min-width: 100px; }
+        
+        /* Log Colors */
+        .log-error { color: #f44336; text-shadow: 0 0 5px #f44336; }
+        .log-success { color: #4caf50; }
+        .log-cmd { color: #00ffff; text-shadow: 0 0 5px #00ffff; }
+        .log-ai { color: #ffeb3b; font-style: italic; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: #0a0; border-radius: 3px; }
+        
+        @media (max-width: 600px) {
+            h2 { font-size: 1.1rem; margin-bottom: 10px; }
+            .top-bar { flex-direction: column; }
+            .flex-1 { width: 100%; }
+            .input-area { flex-direction: column; }
+            .prompt-wrap { width: 100%; }
+            .exec-btn { width: 100%; }
+            body { padding: 5px; }
+        }
     </style>
 </head>
 <body>
-    <h2>🤖 AI Powered Remote Android Terminal</h2>
+    <h2>⚡ AI System Terminal ⚡</h2>
     
-    <div class="controls">
-        <input type="password" id="authToken" placeholder="Enter Auth Token" value="">
-        <button onclick="loadDevices()">🔄 Refresh Devices</button>
-        <select id="deviceSelect">
+    <div class="top-bar">
+        <input type="password" id="authToken" class="flex-1" placeholder="Auth Token (Auto-saved)" value="">
+        <button onclick="loadDevices()">Refresh</button>
+        <select id="deviceSelect" class="flex-1">
             <option value="">Select a connected device...</option>
         </select>
     </div>
 
-    <div id="terminal">System Initialized. Connected to Gemini AI. Awaiting commands...</div>
+    <div id="terminal">Boot sequence initiated...
+Establishing secure connection to Gemini Core...
+Waiting for commands...</div>
 
-    <div class="input-group">
-        <span class="prompt">root@server:~#</span>
-        <input type="text" id="cmdInput" placeholder="Normal command OR 'ai <question>' OR 'analyze <command>'" onkeypress="handleEnter(event)">
-        <button onclick="processInput()" style="padding: 12px 20px;">Execute</button>
-    </div>
-    
-    <div class="helper-text">
-        <b>Pro Tips:</b><br>
-        1. Type normal commands (e.g., <code>ls -l /sdcard</code>)<br>
-        2. Type <code>ai write a bash script to ping google</code> to ask Gemini directly.<br>
-        3. Type <code>analyze dumpsys battery</code> to run the command on device AND send output to Gemini for analysis.
+    <div class="input-area">
+        <div class="prompt-wrap">
+            <span class="prompt">root@nexus:~#</span>
+            <input type="text" id="cmdInput" placeholder="Command / 'ai <query>' / 'analyze <cmd>'" onkeypress="handleEnter(event)" autocomplete="off">
+        </div>
+        <button onclick="processInput()" class="exec-btn">Execute</button>
     </div>
 
     <script>
         const term = document.getElementById('terminal');
+        const tokenInput = document.getElementById('authToken');
         
+        // --- AUTO LOGIN (LocalStorage) ---
+        window.onload = () => {
+            const savedToken = localStorage.getItem('hackerTerminalToken');
+            if (savedToken) {
+                tokenInput.value = savedToken;
+                setTimeout(loadDevices, 500); // Auto load if token exists
+            }
+        };
+
         function log(msg, type = 'normal') {
             const div = document.createElement('div');
             if (type === 'error') div.className = 'log-error';
@@ -131,7 +158,9 @@ const terminalHTML = `
         }
 
         async function loadDevices() {
-            const token = document.getElementById('authToken').value;
+            const token = tokenInput.value;
+            if (token) localStorage.setItem('hackerTerminalToken', token); // Save token
+
             try {
                 const res = await fetch('/api/devices', { headers: { 'Authorization': token } });
                 const data = await res.json();
@@ -140,87 +169,87 @@ const terminalHTML = `
                 const select = document.getElementById('deviceSelect');
                 select.innerHTML = '<option value="">Select a connected device...</option>';
                 data.devices.forEach(d => {
-                    select.innerHTML += \`<option value="\${d.id}">\${d.model} (ID: \${d.id})\</option>\`;
+                    select.innerHTML += '<option value="' + d.id + '">' + d.model + ' (ID: ' + d.id + ')</option>';
                 });
-                log(\`Found \${data.devices.length} connected device(s).\`, 'success');
+                log('System scanner found ' + data.devices.length + ' active device(s).', 'success');
             } catch (err) {
-                log(\`Fetch Error: \${err.message}\`, 'error');
+                log('Access Denied: ' + err.message, 'error');
             }
         }
 
         async function processInput() {
-            const token = document.getElementById('authToken').value;
+            const token = tokenInput.value;
             const deviceId = document.getElementById('deviceSelect').value;
             const cmdInput = document.getElementById('cmdInput');
             const input = cmdInput.value.trim();
 
             if (!input) return;
+            if (token) localStorage.setItem('hackerTerminalToken', token); // Save token
+            
             cmdInput.value = '';
 
             // Handle AI Chat
             if (input.startsWith('ai ')) {
                 const prompt = input.replace('ai ', '');
-                log(\`[AI Query] \${prompt}\`, 'cmd');
+                log('> ' + prompt, 'cmd');
                 await callAI(prompt, token);
                 return;
             }
 
-            if (!deviceId) return log('❌ Please select a device to run commands.', 'error');
+            if (!deviceId) return log('[!] Error: Target device not selected.', 'error');
 
             // Handle AI Analyze Command
             if (input.startsWith('analyze ')) {
                 const actualCmd = input.replace('analyze ', '');
-                log(\`[Analyzing Command] \${actualCmd}\`, 'cmd');
+                log('[Analyze] ' + actualCmd, 'cmd');
                 const result = await executeCmd(actualCmd, deviceId, token);
                 if(result) {
-                    log(\`[AI Analyzing Output...]\`, 'ai');
-                    await callAI(\`Analyze this output from command '\${actualCmd}':\`, token, result);
+                    log('[*] Feeding data to Neural Network...', 'ai');
+                    await callAI('Analyze this output from command ' + actualCmd + ':\\n' + result, token);
                 }
                 return;
             }
 
             // Normal Command
-            log(\`> \${input}\`, 'cmd');
+            log('> ' + input, 'cmd');
             await executeCmd(input, deviceId, token);
         }
 
         async function executeCmd(cmd, deviceId, token) {
             try {
-                const res = await fetch(\`/api/command/\${deviceId}\`, {
+                const res = await fetch('/api/command/' + deviceId, {
                     method: 'POST',
                     headers: { 'Authorization': token, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ command: cmd })
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error);
-                log(data.result || 'Executed successfully with no output.', 'success');
+                log(data.result || '[Execution complete. No output returned.]', 'success');
                 return data.result;
             } catch (err) {
-                log(\`Execution Error: \${err.message}\`, 'error');
+                log('Command Failed: ' + err.message, 'error');
                 return null;
             }
         }
 
-        async function callAI(prompt, token, contextData = null) {
+        async function callAI(prompt, token) {
             try {
                 const res = await fetch('/api/ai/chat', {
                     method: 'POST',
                     headers: { 'Authorization': token, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, contextData })
+                    body: JSON.stringify({ prompt: prompt })
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error);
-                log(\`🤖 Gemini: \n\${data.response}\`, 'ai');
+                log('🤖 Gemini:\\n' + data.response, 'ai');
             } catch (err) {
-                log(\`AI Error: \${err.message}\`, 'error');
+                log('AI Link Broken: ' + err.message, 'error');
             }
         }
 
         function handleEnter(e) {
             if (e.key === 'Enter') processInput();
         }
-        
-        window.onload = loadDevices;
     </script>
 </body>
 </html>
@@ -242,24 +271,19 @@ app.get('/api/devices', authMiddleware, async (req, res) => {
     }
 });
 
-// AI Processing Route (Gemini Free Model)
+// AI Processing Route
 app.post('/api/ai/chat', authMiddleware, async (req, res) => {
-    const { prompt, contextData } = req.body;
+    const { prompt } = req.body;
     try {
-        if(!process.env.GEMINI_API_KEY) throw new Error("Gemini API Key is not set in Server Env.");
+        if(!process.env.GEMINI_API_KEY) throw new Error("Gemini API Key missing in backend.");
         
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        
-        // NO EXTRA BACKSLASHES HERE NOW (Fixed Error)
-        let finalPrompt = contextData 
-            ? `System context: You are an expert remote device manager. Analyze the following terminal output for the user.\n\nUser Request: ${prompt}\n\nTerminal Output Data:\n${contextData}`
-            : `System context: You are a helpful Linux and Android terminal assistant. Answer the user briefly.\n\nUser Question: ${prompt}`;
+        const finalPrompt = "System context: You are an expert hacker, linux admin, and Android terminal assistant. Answer the user briefly and accurately.\\n\\nUser Request: " + prompt;
 
         const result = await model.generateContent(finalPrompt);
         const text = result.response.text();
         
-        // Send AI log to Telegram
-        await sendTelegramLog(`🤖 <b>Gemini AI Interaction</b>\n\n<b>User:</b> ${prompt}\n\n<b>AI:</b> ${text}`);
+        await sendTelegramLog("🤖 <b>Gemini AI Log</b>\\n\\n<b>User:</b> " + prompt + "\\n\\n<b>AI:</b> " + text);
 
         res.json({ success: true, response: text });
     } catch (error) {
@@ -277,7 +301,7 @@ app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
         return res.status(404).json({ success: false, error: 'Device disconnected' });
     }
 
-    const requestId = `${Date.now()}-${Math.random().toString(36)}`;
+    const requestId = Date.now() + '-' + Math.random().toString(36);
     const commandPromise = new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
             pendingCommands.delete(requestId);
@@ -307,10 +331,9 @@ io.on('connection', (socket) => {
         socket.deviceInfo = deviceInfo || { model: 'Unknown' };
         
         connectedDevices.set(deviceId, { socket, deviceInfo });
-        socket.join(`device:${deviceId}`);
+        socket.join('device:' + deviceId);
         
-        // NO EXTRA BACKSLASHES HERE (Fixed Error)
-        await sendTelegramLog(`📱 <b>New Device Connected!</b>\nID: ${deviceId}\nModel: ${socket.deviceInfo.model}`);
+        await sendTelegramLog("📱 <b>New Device Connected!</b>\\nID: " + deviceId + "\\nModel: " + socket.deviceInfo.model);
         socket.emit('registered', { success: true });
     });
 
@@ -322,10 +345,9 @@ io.on('connection', (socket) => {
             clearTimeout(pending.timer);
             pendingCommands.delete(requestId);
             
-            // NO EXTRA BACKSLASHES HERE (Fixed Error)
             let tgMsg = success 
-                ? `✅ <b>Command Execution Success</b>\n\n<b>Device:</b> ${pending.deviceId}\n<b>Command:</b> ${pending.command}\n\n<b>Output:</b>\n${result}`
-                : `❌ <b>Command Execution Failed</b>\n\n<b>Device:</b> ${pending.deviceId}\n<b>Command:</b> ${pending.command}\n\n<b>Error:</b>\n${error}`;
+                ? "✅ <b>Command Success</b>\\n\\n<b>Device:</b> " + pending.deviceId + "\\n<b>Cmd:</b> " + pending.command + "\\n\\n<b>Output:</b>\\n" + result
+                : "❌ <b>Command Failed</b>\\n\\n<b>Device:</b> " + pending.deviceId + "\\n<b>Cmd:</b> " + pending.command + "\\n\\n<b>Error:</b>\\n" + error;
             
             await sendTelegramLog(tgMsg);
 
@@ -337,7 +359,7 @@ io.on('connection', (socket) => {
     socket.on('disconnect', async () => {
         if (socket.deviceId) {
             connectedDevices.delete(socket.deviceId);
-            await sendTelegramLog(`⚠️ <b>Device Disconnected</b>\nID: ${socket.deviceId}`);
+            await sendTelegramLog("⚠️ <b>Device Disconnected</b>\\nID: " + socket.deviceId);
         }
     });
 });
@@ -345,5 +367,5 @@ io.on('connection', (socket) => {
 // ==================== SERVER START ====================
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server Running on Port ${PORT}`);
+    console.log("🚀 Neon Server Running on Port " + PORT);
 });
