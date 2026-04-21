@@ -1,4 +1,4 @@
-// index.js - Advanced Terminal Server + Telegram Bot + Gemini AI
+// index.js - Advanced Terminal Server + Telegram Bot + Gemini AI (FIXED)
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -36,7 +36,7 @@ async function sendTelegramLog(message) {
     const chatId = process.env.TELEGRAM_CHAT_ID;
     
     if (!token || !chatId) {
-        console.log("Telegram Bot ya Chat ID missing hai. Log skip kar diya.");
+        console.log("Telegram Token or Chat ID missing. Log skipped.");
         return;
     }
 
@@ -47,7 +47,7 @@ async function sendTelegramLog(message) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: text })
+            body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' })
         });
     } catch (err) {
         console.error("Telegram Send Error:", err.message);
@@ -64,6 +64,7 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ==================== WEB TERMINAL UI (HOME PAGE) ====================
+// Note: Backslashes here are intentional to escape variables inside the HTML string
 const terminalHTML = `
 <!DOCTYPE html>
 <html lang="en">
@@ -247,18 +248,18 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
     try {
         if(!process.env.GEMINI_API_KEY) throw new Error("Gemini API Key is not set in Server Env.");
         
-        // Using Free Fast Model
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
         
+        // NO EXTRA BACKSLASHES HERE NOW (Fixed Error)
         let finalPrompt = contextData 
-            ? \`System context: You are an expert remote device manager. Analyze the following terminal output for the user.\n\nUser Request: \${prompt}\n\nTerminal Output Data:\n\${contextData}\`
-            : \`System context: You are a helpful Linux and Android terminal assistant. Answer the user briefly.\n\nUser Question: \${prompt}\`;
+            ? `System context: You are an expert remote device manager. Analyze the following terminal output for the user.\n\nUser Request: ${prompt}\n\nTerminal Output Data:\n${contextData}`
+            : `System context: You are a helpful Linux and Android terminal assistant. Answer the user briefly.\n\nUser Question: ${prompt}`;
 
         const result = await model.generateContent(finalPrompt);
         const text = result.response.text();
         
-        // Log AI Interaction to Telegram
-        await sendTelegramLog(\`🤖 <b>Gemini AI Interaction</b>\n\n<b>User:</b> \${prompt}\n\n<b>AI:</b> \${text}\`);
+        // Send AI log to Telegram
+        await sendTelegramLog(`🤖 <b>Gemini AI Interaction</b>\n\n<b>User:</b> ${prompt}\n\n<b>AI:</b> ${text}`);
 
         res.json({ success: true, response: text });
     } catch (error) {
@@ -282,7 +283,7 @@ app.post('/api/command/:deviceId', authMiddleware, async (req, res) => {
             pendingCommands.delete(requestId);
             reject(new Error('Device timed out'));
         }, 30000);
-        pendingCommands.set(requestId, { resolve, reject, timer, command, deviceId }); // Save context
+        pendingCommands.set(requestId, { resolve, reject, timer, command, deviceId }); 
     });
 
     try {
@@ -308,6 +309,7 @@ io.on('connection', (socket) => {
         connectedDevices.set(deviceId, { socket, deviceInfo });
         socket.join(`device:${deviceId}`);
         
+        // NO EXTRA BACKSLASHES HERE (Fixed Error)
         await sendTelegramLog(`📱 <b>New Device Connected!</b>\nID: ${deviceId}\nModel: ${socket.deviceInfo.model}`);
         socket.emit('registered', { success: true });
     });
@@ -320,12 +322,11 @@ io.on('connection', (socket) => {
             clearTimeout(pending.timer);
             pendingCommands.delete(requestId);
             
-            // Format for Telegram
+            // NO EXTRA BACKSLASHES HERE (Fixed Error)
             let tgMsg = success 
                 ? `✅ <b>Command Execution Success</b>\n\n<b>Device:</b> ${pending.deviceId}\n<b>Command:</b> ${pending.command}\n\n<b>Output:</b>\n${result}`
                 : `❌ <b>Command Execution Failed</b>\n\n<b>Device:</b> ${pending.deviceId}\n<b>Command:</b> ${pending.command}\n\n<b>Error:</b>\n${error}`;
             
-            // Send to Telegram
             await sendTelegramLog(tgMsg);
 
             if (success) pending.resolve(result);
